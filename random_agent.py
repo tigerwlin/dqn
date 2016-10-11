@@ -3,7 +3,7 @@ import logging
 import os
 import sys
 from DQN import DQN
-from neonDQN import neonDQN
+# from neonDQN import neonDQN
 import numpy as np
 import copy
 import random
@@ -31,14 +31,16 @@ if __name__ == "__main__":
     # of the time.)
     gym.undo_logger_setup()
     logger = logging.getLogger()
-    formatter = logging.Formatter('[%(asctime)s] %(message)s')
+    logger.handlers = []
+    # formatter = logging.Formatter('[%(asctime)s] %(message)s')
+    formatter = logging.Formatter('[%(asctime)s]:%(levelname)s:%(name)s:%(message)s')
     handler = logging.StreamHandler(sys.stderr)
     handler.setFormatter(formatter)
     logger.addHandler(handler)
     #
     # # You can set the level to logging.DEBUG or logging.WARN if you
     # # want to change the amount of output.
-    logger.setLevel(logging.INFO)
+    logger.setLevel(logging.DEBUG)
 
     env = gym.make(args.env_id)
 
@@ -55,7 +57,7 @@ if __name__ == "__main__":
     done = False
     steps = 0
     epoch_reward = 0
-    epoch_num = 0
+    episode_num = 0
     for i in range(episode_count):
         state = env.reset()
         #state = preprocess_state(state, state, state, state)
@@ -85,23 +87,27 @@ if __name__ == "__main__":
             # Note there's no env.render() here. But the environment still can open window and
             # render if asked by env.monitor: it calls env.render('rgb_array') to record video.
             # Video is not recorded every episode, see capped_cubic_video_schedule for details.
-        print "episode steps: ", episode_steps, "reward: ", episode_reward
-
+        # print "episode steps: ", episode_steps, "reward: ", episode_reward
+        logger.info("episode steps: " + str(episode_steps) + " reward: " + str(episode_reward))
         steps += episode_steps
-        epoch_num += 1
+        episode_num += 1
         epoch_reward += episode_reward[0]
 
         if agent.mode == 'train' and (steps-50000) > 25000: # test the model
             agent.mode = 'test'
-            print "[nums episodes, avg. reward: ] ", epoch_num, epoch_reward*1.0/epoch_num
-            print "SWITCH TO TESTING MODE!"
+            # print "[nums episodes, avg. reward: ] ", epoch_num, epoch_reward*1.0/epoch_num
+            # print "SWITCH TO TESTING MODE!"
+            logger.info("[nums episodes, avg. reward: ] " + str(episode_num) + ", " + str(epoch_reward*1.0/episode_num))
+            logger.info("SWITCH TO TESTING MODE!")
             steps -= 25000
             epoch_num = 0
             epoch_reward = 0
         if agent.mode == 'test' and (steps-50000) > 12500: # test the model
             agent.mode = 'train'
-            print "[nums episodes, avg. reward: ] ", epoch_num, epoch_reward*1.0/epoch_num
-            print "SWITCH TO TRAINING MODE!"
+            # print "[nums episodes, avg. reward: ] ", epoch_num, epoch_reward*1.0/epoch_num
+            # print "SWITCH TO TRAINING MODE!"
+            logger.info("[nums episodes, avg. reward: ] " + str(episode_num) + ", " + str(epoch_reward*1.0/episode_num))
+            logger.info("SWITCH TO TRAINING MODE!")
             steps -= 12500
             epoch_num = 0
             epoch_reward = 0

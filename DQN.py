@@ -4,10 +4,11 @@ import cv2
 import random
 import matplotlib.pyplot as plt
 import copy
-
+import logging
+logger = logging.getLogger(__name__)
 #=====================================================
 import argparse
-from deepqnetwork import DeepQNetwork
+# from deepqnetwork import DeepQNetwork
 from replay_memory import ReplayMemory
 #=====================================================
 
@@ -47,7 +48,8 @@ class DQN(object):
         self.gamma = 0.99
 
         #build Q-learning networks
-        print "building network......"
+        logger.info("building network......")
+        # print "building network......"
         self.network, self.targetNetwork = self.build_network()
 
         self.args = self.generate_parameter()
@@ -226,10 +228,11 @@ class DQN(object):
         # visualize the network
         batch_size = self.sampleSize
         data_shape = (batch_size, ) + self.input_shape
-        print data_shape
+        # print data_shape
+        logger.info( str(data_shape) )
         mx.viz.plot_network(softmax, shape={"data":data_shape}, node_attrs={"shape":'oval',"fixedsize":'false'})
-        print softmax.list_arguments()
-
+        # print softmax.list_arguments()
+        logger.info( str(softmax.list_arguments()) )
         # ==================Binding=====================
         # The symbol we created is only a graph description.
         # To run it, we first need to allocate memory and create an executor by 'binding' it.
@@ -248,7 +251,8 @@ class DQN(object):
         label_data = np.zeros((batch_size, self.action_space_size))
         train_iter = mx.io.NDArrayIter(data=train_data, label=label_data, batch_size=batch_size, shuffle=True)
         input_shapes = dict(train_iter.provide_data + train_iter.provide_label)
-        print "input_shapes:", input_shapes
+        # print "input_shapes:", input_shapes
+        logger.info("input_shapes:" + str(input_shapes))
         # ===============Initialization=================
         # First we get handle to input arrays
         arg_arrays = dict(zip(softmax.list_arguments(), network.arg_arrays))
@@ -299,21 +303,29 @@ class DQN(object):
         assert state.shape[0] == self.sampleSize
         assert state.shape[1] == self.input_shape[0]
 
+        # state_float = state / 255.0
+        # arg_arrays = net.arg_dict
+        # train_iter = mx.io.NDArrayIter(data=state_float, batch_size=state.shape[0])
+        # data = arg_arrays[train_iter.provide_data[0][0]]
+        #
+        # q = []
+        # for batch in train_iter:
+        #     # Copy data to executor input. Note the [:].
+        #     data[:] = batch.data[0]
+        #
+        #     net.forward(is_train=False)
+        #
+        #     q = net.outputs[0]
+
         state_float = state / 255.0
         arg_arrays = net.arg_dict
-        train_iter = mx.io.NDArrayIter(data=state_float, batch_size=state.shape[0])
-        data = arg_arrays[train_iter.provide_data[0][0]]
+        data = arg_arrays['data']
+        data[:] = state_float
+        net.forward(is_train=True)
+        q = net.outputs[0].asnumpy()
+        assert q.shape == (self.sampleSize, self.action_space_size)
 
-        q = []
-        for batch in train_iter:
-            # Copy data to executor input. Note the [:].
-            data[:] = batch.data[0]
-
-            self.network.forward(is_train=False)
-
-            q = self.network.outputs[0]
-
-        return q.asnumpy()
+        return q
 
     def train(self, state, action, reward, nextState, done):
         # state = copy.deepcopy(state1)
@@ -321,118 +333,251 @@ class DQN(object):
         # reward = copy.deepcopy(reward1)
         # nextState = copy.deepcopy(nextState1)
         # done = copy.deepcopy(done1)
+        assert len(state.shape) == 4
+        assert len(nextState.shape) == 4
+        assert len(action.shape) == 1
+        assert len(reward.shape) == 1
+        assert len(done.shape) == 1
+        assert state.shape == nextState.shape
+        assert state.shape[0] == action.shape[0] == reward.shape[0] == nextState.shape[0] == done.shape[0]
+        # ======================new version=========================================================================
+        # feed-forward pass for poststates to get Q-values
+        # self._setInput(poststates)
+        # postq = self.target_model.fprop(self.input, inference = True)
+        state_float = nextState / 255.0
+        arg_arrays = self.targetNetwork.arg_dict
+        data = arg_arrays['data']
+        data[:] = state_float
+        self.targetNetwork.forward(is_train=True)
+        postq = self.targetNetwork.outputs[0].asnumpy()
+        postq = postq.transpose()
+        assert postq.shape == (self.action_space_size, self.sampleSize)
 
+        # calculate max Q-value for each poststate
+        # maxpostq = self.be.max(postq, axis=0).asnumpyarray()
+        maxpostq = np.max(postq, axis=0, keepdims=True)
+        assert maxpostq.shape == (1, self.sampleSize)
 
-
-        # ==============================================================
-        reward = np.clip(reward, -1, 1)
-
-
-        future_Qvalue = self._network_forward(self.targetNetwork, nextState)
-        future_reward = np.max(future_Qvalue, axis=1)
-        # future_reward = future_reward[:, np.newaxis]
-
-        nonzero_reward_list = np.nonzero(reward)
-        new_reward = reward + (1-done)*self.gamma*future_reward
-        # reward += (1-abs(reward))*self.gamma*future_reward
-
-        # ==============================================================
-        target_reward = self._network_forward(self.network, state)
-        # # ==============================================================
-        # target_reward = self.net.predict(state)
-        #
-        #
-        old_target_reward = copy.deepcopy(target_reward)
-
-        for i in xrange(self.sampleSize):
-            # target_reward[i][action[i]] = reward[i]
-            # clip error to [-1, 1], Mnih 2015 Nature
-            target_reward[i][action[i]] = max(min(new_reward[i], target_reward[i][action[i]]+1), target_reward[i][action[i]]-1)
-
-        # =======================================================================
-        # epoch = 0
-        # minibatch = state, action, reward, nextState, done
-        # self.net.train(minibatch, epoch)
-        # =======================================================================
-        if self._debug:
-            print "reward:", reward.transpose()
-            print "future_reward:", future_reward.transpose()
-            print "action:", action.transpose()
-            print "done: ", done.transpose()
-            figure_id = 0
-            for batch_i in nonzero_reward_list[0]:
-                if 1: #reward[batch_i, ...] != 0:
-                    figure_id += 1
-                    plt.figure(figure_id)
-                    for plot_i in range(0, self.history_length):
-                        plt.subplot(3, self.history_length, plot_i + 1)
-                        plt.imshow(state[batch_i, plot_i, ...])
-                        plt.title("action: " + str(action[batch_i, ...]) + "reward: " + str(reward[batch_i, ...])
-                                  + "done: " + str(done[batch_i, ...]))
-                        plt.colorbar()
-
-                        plt.subplot(3, self.history_length, plot_i + 1 + self.history_length)
-                        plt.imshow(nextState[batch_i, plot_i, ...])
-
-                        plt.subplot(3, self.history_length, plot_i + 1 + self.history_length * 2)
-                        plt.imshow(nextState[batch_i, plot_i, ...].astype('int16') - state[batch_i, plot_i, ...])
-                        if plot_i == 0:
-                            plt.title("reward: " + str(reward[batch_i, ...])
-                                  + " target reward: " + str(target_reward[batch_i, ...])
-                                  + " old reward: " + str(old_target_reward[batch_i, ...]))
-                        plt.colorbar()
-
-            plt.show()
-            # raw_input()
-        #=======================================================================
-
-        train_data = state / 255.0
-        train_label = target_reward
-
-
-        # First we get handle to input arrays
+        # feed-forward pass for prestates
+        # self._setInput(prestates)
+        # preq = self.model.fprop(self.input, inference = False)
+        state_float = state / 255.0
         arg_arrays = self.network.arg_dict
-        batch_size = self.sampleSize
-        train_iter = mx.io.NDArrayIter(data=train_data, label=train_label, batch_size=batch_size, shuffle=False)
-        # val_iter = mx.io.NDArrayIter(data=val_data, label=val_label, batch_size=batch_size)
-        data = arg_arrays[train_iter.provide_data[0][0]]
-        label = arg_arrays[train_iter.provide_label[0][0]]
+        data = arg_arrays['data']
+        data[:] = state_float
+        self.network.forward(is_train=True)
+        q = self.network.outputs[0]
+        preq = q.asnumpy().transpose()
+        assert preq.shape == (self.action_space_size, self.sampleSize)
+
+        # make copy of prestate Q-values as targets
+        # targets = preq.asnumpyarray().copy()
+        targets = preq.copy()
+
+        # old_targets = preq.asnumpyarray().copy()
+        old_targets = preq.copy()
+
+        # =================================================================
+        # replace this with my precomputed reward
 
 
+        # =================================================================
+        # clip rewards between -1 and 1
+        rewards = np.clip(reward, -1, 1)
 
-        # Training loop begines
-        train_iter.reset()
-        self.metric.reset()
+        # update Q-value targets for actions taken
+        for i, action in enumerate(action):
+            if done[i]:
+                targets[action, i] = float(rewards[i])
+            else:
+                targets[action, i] = float(rewards[i]) + self.gamma * maxpostq[0, i]
 
-        for batch in train_iter:
-            # Copy data to executor input. Note the [:].
-            data[:] = batch.data[0]
-            label[:] = batch.label[0]
+        # =================================================================
+        # rewards = np.clip(rewards, -1, 1)
+        #
+        # future_Qvalue = maxpostq[0]
+        # future_reward = future_Qvalue #np.max(future_Qvalue, axis=1)
+        # # future_reward = future_reward[:, np.newaxis]
+        #
+        # rewards += (1-terminals)*self.discount_rate*future_reward
+        # # reward += (1 - abs(reward)) * self.gamma * future_reward
+        #
+        # target_reward =targets
+        # # old_target_reward = copy.deepcopy(target_reward)
+        # for i in xrange(self.batch_size):
+        #   # target_reward[i][action[i]] = reward[i]
+        #   # clip error to [-1, 1], Mnih 2015 Nature
+        #   target_reward[actions[i]][i] = max(min(rewards[i], target_reward[actions[i]][i] + 1),
+        #                                     target_reward[actions[i]][i] - 1)
+        # targets = target_reward
+        # =================================================================
 
-            # Forward
-            self.network.forward(is_train=True)
+        # copy targets to GPU memory
+        # self.targets.set(targets)
 
-            # You perform operations on exe.outputs here if you need to.
-            # For example, you can stack a CRF on top of a neural network.
+        # calculate errors
+        # deltas = self.cost.get_errors(preq, self.targets)
+        deltas = preq - targets
+        assert deltas.shape == (self.action_space_size, self.sampleSize)
+        # assert np.count_nonzero(deltas.asnumpyarray()) == 32
 
-            # Backward
-            self.network.backward()
+        # calculate cost, just in case
+        # cost = self.cost.get_cost(preq, self.targets)
+        cost = np.sum(deltas * deltas, keepdims=True)
+        assert cost.shape == (1, 1)
 
-            # Update
-            for i, pair in enumerate(zip(self.network.arg_arrays, self.network.grad_arrays)):
-                weight, grad = pair
-                self.updater(i, grad, weight)
-            self.metric.update(batch.label, self.network.outputs)
+        # clip errors
+        if 1: # self.clip_error:
+            # self.be.clip(deltas, -self.clip_error, self.clip_error, out = deltas)
+            deltas = np.clip(deltas, -1, 1)
 
-            if self.steps % 500 == 0:
-                print 'network.outputs:', self.network.outputs[0].asnumpy()
-                print 'old target reward: ', old_target_reward
-                print 'label:', batch.label[0].asnumpy()
-                # np.set_printoptions(precision=4)
-                print 'delta: ', (batch.label[0].asnumpy() - self.network.outputs[0].asnumpy())
-                print 'steps:', self.steps, 'metric:', self.metric.get()
+        # perform back-propagation of gradients
+        # self.model.bprop(deltas)
+        label = arg_arrays['softmax_label']
+        label[:] = (preq - deltas).transpose()
+        self.network.backward()
 
-        #========================================================================
+        # perform optimization
+        # self.optimizer.optimize(self.model.layers_to_optimize, epoch)
+
+        for i, pair in enumerate(zip(self.network.arg_arrays, self.network.grad_arrays)):
+            weight, grad = pair
+            self.updater(i, grad, weight)
+        # self.metric.update(label, self.network.outputs)
+
+        # increase number of weight updates (needed for stats callback)
+        self.steps += 1
+
+        if self.steps % 500 == 0 and logger.isEnabledFor(logging.DEBUG):
+            np.set_printoptions(precision=4)
+            logger.debug("old target: " + str(old_targets.transpose()))
+            logger.debug("target: " + str(targets.transpose()))
+            logger.debug("delta: " + str(deltas.transpose()))
+            logger.debug("steps: " + str(self.steps))
+
+            # print "old target: ", old_targets.transpose()
+            # print "target: ", targets.transpose()
+            # print "delta: ", deltas.transpose()
+            # # print "delta2: ", (targets - old_targets).transpose()
+            # print "steps: ", self.steps
+
+
+        # ===========old version===================================================
+        # reward = np.clip(reward, -1, 1)
+        #
+        #
+        # future_Qvalue = self._network_forward(self.targetNetwork, nextState)
+        # future_reward = np.max(future_Qvalue, axis=1)
+        # # future_reward = future_reward[:, np.newaxis]
+        #
+        # nonzero_reward_list = np.nonzero(reward)
+        # new_reward = reward + (1-done)*self.gamma*future_reward
+        # # reward += (1-abs(reward))*self.gamma*future_reward
+        #
+        # # ==============================================================
+        # target_reward = self._network_forward(self.network, state)
+        # # # ==============================================================
+        # # target_reward = self.net.predict(state)
+        # #
+        # #
+        # old_target_reward = copy.deepcopy(target_reward)
+        #
+        # for i in xrange(self.sampleSize):
+        #     # target_reward[i][action[i]] = reward[i]
+        #     # clip error to [-1, 1], Mnih 2015 Nature
+        #     target_reward[i][action[i]] = max(min(new_reward[i], target_reward[i][action[i]]+1), target_reward[i][action[i]]-1)
+        #
+        # # =======================================================================
+        # # epoch = 0
+        # # minibatch = state, action, reward, nextState, done
+        # # self.net.train(minibatch, epoch)
+        # # =======================================================================
+        # if self._debug:
+        #     print "reward:", reward.transpose()
+        #     print "future_reward:", future_reward.transpose()
+        #     print "action:", action.transpose()
+        #     print "done: ", done.transpose()
+        #     figure_id = 0
+        #     for batch_i in nonzero_reward_list[0]:
+        #         if 1: #reward[batch_i, ...] != 0:
+        #             figure_id += 1
+        #             plt.figure(figure_id)
+        #             for plot_i in range(0, self.history_length):
+        #                 plt.subplot(3, self.history_length, plot_i + 1)
+        #                 plt.imshow(state[batch_i, plot_i, ...])
+        #                 plt.title("action: " + str(action[batch_i, ...]) + "reward: " + str(reward[batch_i, ...])
+        #                           + "done: " + str(done[batch_i, ...]))
+        #                 plt.colorbar()
+        #
+        #                 plt.subplot(3, self.history_length, plot_i + 1 + self.history_length)
+        #                 plt.imshow(nextState[batch_i, plot_i, ...])
+        #
+        #                 plt.subplot(3, self.history_length, plot_i + 1 + self.history_length * 2)
+        #                 plt.imshow(nextState[batch_i, plot_i, ...].astype('int16') - state[batch_i, plot_i, ...])
+        #                 if plot_i == 0:
+        #                     plt.title("reward: " + str(reward[batch_i, ...])
+        #                           + " target reward: " + str(target_reward[batch_i, ...])
+        #                           + " old reward: " + str(old_target_reward[batch_i, ...]))
+        #                 plt.colorbar()
+        #
+        #     plt.show()
+        #     # raw_input()
+        # #=======================================================================
+        #
+        # train_data = state / 255.0
+        # train_label = target_reward
+        #
+        #
+        # # First we get handle to input arrays
+        # arg_arrays = self.network.arg_dict
+        # batch_size = self.sampleSize
+        # train_iter = mx.io.NDArrayIter(data=train_data, label=train_label, batch_size=batch_size, shuffle=False)
+        # # val_iter = mx.io.NDArrayIter(data=val_data, label=val_label, batch_size=batch_size)
+        # data = arg_arrays[train_iter.provide_data[0][0]]
+        # label = arg_arrays[train_iter.provide_label[0][0]]
+        #
+        # # opt = mx.optimizer.RMSProp(
+        # #     learning_rate=self.learning_rate, rescale_grad=1.0 / self.sampleSize,
+        # #     gamma2=self.rmsprop_gamma2)
+        #
+        # # opt = mx.optimizer.Adam(
+        # #     learning_rate=self.learning_rate, rescale_grad = 1.0/self.sampleSize)
+        #
+        # # updater = mx.optimizer.get_updater(opt)
+        #
+        # # Training loop begines
+        # train_iter.reset()
+        # self.metric.reset()
+        #
+        # for batch in train_iter:
+        #     # Copy data to executor input. Note the [:].
+        #     data[:] = batch.data[0]
+        #     label[:] = batch.label[0]
+        #
+        #     # Forward
+        #     self.network.forward(is_train=True)
+        #
+        #     # You perform operations on exe.outputs here if you need to.
+        #     # For example, you can stack a CRF on top of a neural network.
+        #
+        #     # Backward
+        #     self.network.backward()
+        #
+        #     # Update
+        #     for i, pair in enumerate(zip(self.network.arg_arrays, self.network.grad_arrays)):
+        #         weight, grad = pair
+        #         self.updater(i, grad, weight)
+        #     self.metric.update(batch.label, self.network.outputs)
+        #
+        #     if self.steps % 500 == 0:
+        #         print 'network.outputs:', self.network.outputs[0].asnumpy()
+        #         print 'old target reward: ', old_target_reward
+        #         print 'label:', batch.label[0].asnumpy()
+        #         # np.set_printoptions(precision=4)
+        #         print 'delta: ', (batch.label[0].asnumpy() - self.network.outputs[0].asnumpy())
+        #         print 'steps:', self.steps, 'metric:', self.metric.get()
+
+        #=================end of old version=======================================================
         #sync target-network with network as mentioned in Mnih et al. Nature 2015
         if self.steps % self.targetNetC == 0:
             self.targetNetwork.copy_params_from(self.network.arg_dict, self.network.aux_dict)
