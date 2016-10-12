@@ -41,7 +41,7 @@ if __name__ == "__main__":
     #
     # # You can set the level to logging.DEBUG or logging.WARN if you
     # # want to change the amount of output.
-    logger.setLevel(logging.DEBUG)
+    logger.setLevel(logging.INFO)
 
     env = gym.make(args.env_id)
 
@@ -120,6 +120,7 @@ if __name__ == "__main__":
             epoch_reward = 0
         if agent.mode == 'test' and (steps-50000) > 12500: # test the model
             # env.monitor.configure(video_callable=lambda count: False)
+            logger.info("video saved : " + outdir)
             env.monitor.close()
             agent.mode = 'train'
             # print "[nums episodes, avg. reward: ] ", epoch_num, epoch_reward*1.0/epoch_num

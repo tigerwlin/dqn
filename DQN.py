@@ -31,16 +31,18 @@ class DQN(object):
         # learning related
         self.learning_rate = 0.00025
         self.rmsprop_gamma2 = 0.
+        self.epsilon_training_bound = 0.1
+        self.epsilon_testing = 0.05
         # experience replay related
         self.memoryIdx = 0
         self.memoryFillCount = 0
         self.memoryLimit = 50000 #1000000
         self.sampleSize = 32
 
-        self.states = np.zeros((self.memoryLimit,) + self.input_shape[1:], dtype='uint8')
+        # self.states = np.zeros((self.memoryLimit,) + self.input_shape[1:], dtype='uint8')
         self.actions = np.zeros((self.memoryLimit,), dtype='uint8')
         self.rewards = np.zeros((self.memoryLimit,))
-        self.nextStates = np.zeros_like(self.states, dtype='uint8')
+        self.nextStates = np.zeros((self.memoryLimit,) + self.input_shape[1:], dtype='uint8')
         self.dones = np.zeros_like(self.actions, dtype='bool')
         # target network update related
         self.targetNetC = 4 #10000
@@ -79,9 +81,9 @@ class DQN(object):
 
 
         if self.mode == 'train':
-            epsilon = max(0.1, 1-max(self.steps - self.prelearning_steps, 0)/self.total_steps)
+            epsilon = max(self.epsilon_training_bound, 1-max(self.steps - self.prelearning_steps, 0)/self.total_steps)
         elif self.mode == 'test':
-            epsilon = .05
+            epsilon = self.epsilon_testing
         else:
             assert False
 
@@ -126,9 +128,10 @@ class DQN(object):
         # ==========================================================
 
         if self.steps - self.prelearning_steps > 0: # learning starts
-            # state, action, reward, nextState, done = self.sampleFromMemory()
             # ==========================================================
-            state, action, reward, nextState, done = self.mem.getMinibatch()
+            state, action, reward, nextState, done = self.sampleFromMemory()
+            # ==========================================================
+            # state, action, reward, nextState, done = self.mem.getMinibatch()
             # ==========================================================
             self.train(state, action, reward, nextState, done)
 
@@ -142,7 +145,7 @@ class DQN(object):
 
     def putInMemory(self, state, action, reward, nextState, done):
         memoryIdx = self.memoryIdx
-        self.states[memoryIdx, ...] = state
+        # self.states[memoryIdx, ...] = state
         self.actions[memoryIdx, ...] = action
         self.rewards[memoryIdx, ...] = reward
         self.nextStates[memoryIdx, ...] = nextState
@@ -172,14 +175,15 @@ class DQN(object):
         #
         # return state, action, reward, nextState, done
     #==================================================================================================
-        state = np.zeros((self.sampleSize, self.history_length) + self.states.shape[1:], dtype='uint8')
+        state = np.zeros((self.sampleSize, self.history_length) + self.nextStates.shape[1:], dtype='uint8')
         nextState = np.zeros((self.sampleSize, self.history_length) + self.nextStates.shape[1:], dtype='uint8')
         indexes = []
         while len(indexes) < self.sampleSize:
             # find random index
             while True:
                 # sample one index (ignore states wraping over
-                index = random.randint(self.history_length-1, self.memoryFillCount-1)
+                # index = random.randint(self.history_length-1, self.memoryFillCount-1)
+                index = random.randint(self.history_length, self.memoryFillCount-1)
                 # if wraps over current pointer, then get new one
                 if index >= self.memoryIdx and index - (self.history_length - 1) < self.memoryIdx:
                     continue
@@ -195,7 +199,8 @@ class DQN(object):
             # NB! having index first is fastest in C-order matrices
             assert index >= self.history_length-1
             assert index <= self.memoryLimit-1
-            state[len(indexes), ...] = self.states[(index - (self.history_length - 1)):(index + 1), ...]
+            # state[len(indexes), ...] = self.states[(index - (self.history_length - 1)):(index + 1), ...]
+            state[len(indexes), ...] = self.nextStates[(index - self.history_length):index, ...]
             nextState[len(indexes), ...] = self.nextStates[(index - (self.history_length - 1)):(index + 1), ...]
             indexes.append(index)
 
@@ -272,7 +277,8 @@ class DQN(object):
         arg_arrays = dict(zip(softmax.list_arguments(), targetNetwork.arg_arrays))
 
         # We initialize the weights with uniform distribution on (-0.01, 0.01).
-        init = mx.init.Uniform(scale=0.01)
+        # init = mx.init.Uniform(scale=0.01)
+        init = mx.init.Xavier(factor_type="in")
         for name, arr in arg_arrays.items():
             if name not in input_shapes:
                 init(name, arr)
@@ -454,6 +460,7 @@ class DQN(object):
             logger.debug("old target: " + str(old_targets.transpose()))
             logger.debug("target: " + str(targets.transpose()))
             logger.debug("delta: " + str(deltas.transpose()))
+            logger.debug("sum(self.nextStates-self.mem.screens): " + str(np.sum(self.nextStates - self.mem.screens)))
             logger.debug("steps: " + str(self.steps))
 
             # print "old target: ", old_targets.transpose()
