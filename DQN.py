@@ -104,6 +104,7 @@ class DQN(object):
         # self.prev_state = nextState
 
         self.steps += 1
+        # logger.debug("DQN steps increase by 1 to : " + str(self.steps))
         # ==========================================================
         # plt.figure(2)
         # plt.subplot(3, 1, 1)
@@ -446,7 +447,7 @@ class DQN(object):
         # self.metric.update(label, self.network.outputs)
 
         # increase number of weight updates (needed for stats callback)
-        self.steps += 1
+        # self.steps += 1
 
         if self.steps % 500 == 0 and logger.isEnabledFor(logging.DEBUG):
             np.set_printoptions(precision=4)
@@ -696,3 +697,34 @@ class DQN(object):
                             help="Log level.")
         args = parser.parse_args()
         return args
+
+    def save_network(self, prefix='tmp_network', epoch=0):
+        save_dict = {('network_arg:%s' % k) : v for k, v in self.network.arg_dict.items()}
+        save_dict.update({('network_aux:%s' % k) : v for k, v in self.network.aux_dict.items()})
+        save_dict.update({('targetNetwork_arg:%s' % k): v for k, v in self.targetNetwork.arg_dict.items()})
+        save_dict.update({('targetNetwork_aux:%s' % k): v for k, v in self.targetNetwork.aux_dict.items()})
+        param_name = '%s-%04d.params' % (prefix, epoch)
+        mx.nd.save(param_name, save_dict)
+        logger.info('Saved checkpoint to \"%s\"', param_name)
+
+    def load_network(self, prefix='tmp_network', epoch=0):
+        save_dict = mx.nd.load('%s-%04d.params' % (prefix, epoch))
+        arg_params = {}
+        aux_params = {}
+        for k, v in save_dict.items():
+            tp, name = k.split(':', 1)
+            if tp == 'network_arg':
+                arg_params[name] = v
+            if tp == 'network_aux':
+                aux_params[name] = v
+        self.network.copy_params_from(arg_params, aux_params)
+
+        arg_params = {}
+        aux_params = {}
+        for k, v in save_dict.items():
+            tp, name = k.split(':', 1)
+            if tp == 'targetNetwork_arg':
+                arg_params[name] = v
+            if tp == 'targetNetwork_aux':
+                aux_params[name] = v
+        self.targetNetwork.copy_params_from(arg_params, aux_params)
