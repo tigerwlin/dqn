@@ -2,6 +2,7 @@ import numpy as np
 import mxnet as mx
 import cv2
 import random
+import json
 import matplotlib.pyplot as plt
 
 import logging
@@ -83,7 +84,15 @@ class DQN(object):
 
 
         if self.mode == 'train':
-            epsilon = max(self.epsilon_training_bound, 1-max(self.steps - self.prelearning_steps, 0)/self.total_steps)
+            if self.prelearning_steps > 0:
+                # generate random steps
+                epsilon = max(self.epsilon_training_bound, 1-self.steps/self.total_steps)
+                self.prelearning_steps -= 1
+                if self.prelearning_steps == 0:
+                    logger.info("prelearning finish, memory filled, learning starts!")
+            else:
+                epsilon = max(self.epsilon_training_bound, 1-self.steps/self.total_steps)
+                self.steps += 1
         elif self.mode == 'test':
             epsilon = self.epsilon_testing
         else:
@@ -107,7 +116,7 @@ class DQN(object):
         nextState = self.preprocess_state(nextState)
         # self.prev_state = nextState
 
-        self.steps += 1
+        # self.steps += 1   # moved to def act
         # logger.debug("DQN steps increase by 1 to : " + str(self.steps))
         # ==========================================================
         # plt.figure(2)
@@ -129,7 +138,7 @@ class DQN(object):
         # self.mem.add(action, reward, nextState, done)
         # ==========================================================
 
-        if self.steps - self.prelearning_steps > 0: # learning starts
+        if self.prelearning_steps <= 0: # learning starts
             # ==========================================================
             state, action, reward, nextState, done = self.sampleFromMemory()
             # ==========================================================
@@ -362,50 +371,50 @@ class DQN(object):
         assert state.shape == nextState.shape
         assert state.shape[0] == action.shape[0] == reward.shape[0] == nextState.shape[0] == done.shape[0]
         # ======================new version=========================================================================
-        if self.double_DQN :
-            # selection step: use the online network to determine the greedy policy
-            state_float = nextState / 255.0
-            arg_arrays = self.network.arg_dict
-            data = arg_arrays['data']
-            data[:] = state_float
-            self.network.forward(is_train=True)
-            postq = self.network.outputs[0].asnumpy()
-            postq = postq.transpose()
-            assert postq.shape == (self.action_space_size, self.sampleSize)
+        # if self.double_DQN :
+        #     # selection step: use the online network to determine the greedy policy
+        #     state_float = nextState / 255.0
+        #     arg_arrays = self.network.arg_dict
+        #     data = arg_arrays['data']
+        #     data[:] = state_float
+        #     self.network.forward(is_train=True)
+        #     postq = self.network.outputs[0].asnumpy()
+        #     postq = postq.transpose()
+        #     assert postq.shape == (self.action_space_size, self.sampleSize)
+        #
+        #     # determine the greedy policy
+        #     maxposta = np.argmax(postq, axis=0)
+        #     assert maxposta.shape == (self.sampleSize,)
+        #
+        #     # evaluation step: use the target network to determine the future reward value
+        #     arg_arrays = self.targetNetwork.arg_dict
+        #     data = arg_arrays['data']
+        #     data[:] = state_float
+        #     self.targetNetwork.forward(is_train=True)
+        #     postq = self.targetNetwork.outputs[0].asnumpy()
+        #     postq = postq.transpose()
+        #     assert postq.shape == (self.action_space_size, self.sampleSize)
+        #     # use the online network's result to determine the future reward value
+        #     maxpostq = postq[maxposta, range(self.sampleSize)]
+        #     maxpostq = maxpostq[np.newaxis, :]
+        #     assert maxpostq.shape == (1, self.sampleSize)
+        # else :
+        # feed-forward pass for poststates to get Q-values
+        # self._setInput(poststates)
+        # postq = self.target_model.fprop(self.input, inference = True)
+        state_float = nextState / 255.0
+        arg_arrays = self.targetNetwork.arg_dict
+        data = arg_arrays['data']
+        data[:] = state_float
+        self.targetNetwork.forward(is_train=True)
+        postq = self.targetNetwork.outputs[0].asnumpy()
+        postq = postq.transpose()
+        assert postq.shape == (self.action_space_size, self.sampleSize)
 
-            # determine the greedy policy
-            maxposta = np.argmax(postq, axis=0)
-            assert maxposta.shape == (self.sampleSize,)
-
-            # evaluation step: use the target network to determine the future reward value
-            arg_arrays = self.targetNetwork.arg_dict
-            data = arg_arrays['data']
-            data[:] = state_float
-            self.targetNetwork.forward(is_train=True)
-            postq = self.targetNetwork.outputs[0].asnumpy()
-            postq = postq.transpose()
-            assert postq.shape == (self.action_space_size, self.sampleSize)
-            # use the online network's result to determine the future reward value
-            maxpostq = postq[maxposta, range(self.sampleSize)]
-            maxpostq = maxpostq[np.newaxis, :]
-            assert maxpostq.shape == (1, self.sampleSize)
-        else :
-            # feed-forward pass for poststates to get Q-values
-            # self._setInput(poststates)
-            # postq = self.target_model.fprop(self.input, inference = True)
-            state_float = nextState / 255.0
-            arg_arrays = self.targetNetwork.arg_dict
-            data = arg_arrays['data']
-            data[:] = state_float
-            self.targetNetwork.forward(is_train=True)
-            postq = self.targetNetwork.outputs[0].asnumpy()
-            postq = postq.transpose()
-            assert postq.shape == (self.action_space_size, self.sampleSize)
-
-            # calculate max Q-value for each poststate
-            # maxpostq = self.be.max(postq, axis=0).asnumpyarray()
-            maxpostq = np.max(postq, axis=0, keepdims=True)
-            assert maxpostq.shape == (1, self.sampleSize)
+        # calculate max Q-value for each poststate
+        # maxpostq = self.be.max(postq, axis=0).asnumpyarray()
+        maxpostq = np.max(postq, axis=0, keepdims=True)
+        assert maxpostq.shape == (1, self.sampleSize)
         # ============================================================================
         # feed-forward pass for prestates
         # self._setInput(prestates)
@@ -754,6 +763,10 @@ class DQN(object):
         save_dict.update({('targetNetwork_aux:%s' % k): v for k, v in self.targetNetwork.aux_dict.items()})
         param_name = '%s-%04d.params' % (prefix, epoch)
         mx.nd.save(param_name, save_dict)
+        hyper_params = {}
+        hyper_params['steps'] = self.steps
+        with open('%s-%04d.json' % (prefix, epoch), 'w') as fp:
+            json.dump(hyper_params, fp)
         logger.info('Saved checkpoint to \"%s\"', param_name)
 
     def load_network(self, prefix='tmp_network', epoch=0):
@@ -777,3 +790,6 @@ class DQN(object):
             if tp == 'targetNetwork_aux':
                 aux_params[name] = v
         self.targetNetwork.copy_params_from(arg_params, aux_params)
+        with open('%s-%04d.json' % (prefix, epoch), 'r') as fp:
+            hyper_params = json.load(fp)
+        self.steps = hyper_params['steps']
