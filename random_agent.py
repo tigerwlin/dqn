@@ -3,6 +3,7 @@ import logging
 import os
 import sys
 from DQN import DQN
+from doubleDQN import DoubleDQN
 # from neonDQN import neonDQN
 import numpy as np
 import copy
@@ -22,9 +23,14 @@ import gym_ple
 
 
 if __name__ == "__main__":
+
+
+
     random.seed(1)
     parser = argparse.ArgumentParser(description=None)
     parser.add_argument('env_id', nargs='?', default='Catcher-v0', help='Select the environment to run')
+    parser.add_argument('--load', help='load network from file')
+
     args = parser.parse_args()
 
     # Call `undo_logger_setup` if you want to undo Gym's logger setup
@@ -41,7 +47,23 @@ if __name__ == "__main__":
     #
     # # You can set the level to logging.DEBUG or logging.WARN if you
     # # want to change the amount of output.
-    logger.setLevel(logging.INFO)
+    logger.setLevel(logging.DEBUG)
+
+    if args.load is not None:
+        outdir = args.load
+        logger.info("load network from: " + outdir)
+    else:
+        outdir = tempfile.mkdtemp()
+
+    logger.info("project dir: " + outdir)
+
+    file_logger = logging.getLogger('file')
+    file_logger.handlers = []
+    file_logger.propagate = False
+    hdlr_2 = logging.FileHandler(outdir+'/record.log')
+    hdlr_2.setFormatter(formatter)
+    file_logger.addHandler(hdlr_2)
+    file_logger.setLevel(logging.DEBUG)
 
     env = gym.make(args.env_id)
 
@@ -52,13 +74,15 @@ if __name__ == "__main__":
     def first_ten(id):
         return id < 10
     # outdir = '/tmp/random-agent-results'
-    outdir = tempfile.mkdtemp()
     # env.monitor.start(outdir, force=True, seed=0, video_callable=lambda count: False)
 
     # input_shape = env.observation_space.shape
     # agent = DQN((input_shape[-1],)+input_shape[:-1], env.action_space)
     # agent = DQN((4,84,84), env.action_space)
     agent = DQN((4,64,64), env.action_space)
+    if args.load is not None:
+        agent.load_network(prefix=outdir+'/network')
+    # agent = DoubleDQN((4,64,64), env.action_space)
     # agent = neonDQN((4,64,64), env.action_space)
 
     episode_count = 1000000
@@ -106,7 +130,7 @@ if __name__ == "__main__":
         epoch_reward += episode_reward[0]
 
         if agent.mode == 'train' and (steps-50000) > 25000: # test the model
-            agent.save_network(outdir+'/network')
+            agent.save_network(prefix=outdir+'/network')
             logger.info('checkpoint reached, network saved!')
             agent.mode = 'test'
             # env.monitor.configure(video_callable=lambda count: count % 1000 == 0)
