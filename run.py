@@ -44,6 +44,8 @@ def get_parameters():
     parser.add_argument("--train_steps", type=int, default=25000, help="How many training steps per epoch.")
     parser.add_argument("--test_steps", type=int, default=12500, help="How many testing steps after each epoch.")
     parser.add_argument("--record_videos", type=int, default=0, help="Whether record videos during testing.")
+    parser.add_argument('--backend', choices=['cpu', 'gpu'], default='gpu', help='backend type')
+    parser.add_argument('--device_id', type=int, default=0, help='gpu device id (only used with GPU backend)')
     args = parser.parse_args()
     return args
 
@@ -73,7 +75,7 @@ if __name__ == "__main__":
         outdir = args.load
         logger.info("load network from: " + outdir)
     else:
-        outdir = tempfile.mkdtemp(dir='/mnt/scratch/wulin/tmp')
+        outdir = tempfile.mkdtemp(dir='/mnt/scratch/wulin/tmp', suffix='_'+args.env_id)
 
     logger.info("project dir: " + outdir)
 
