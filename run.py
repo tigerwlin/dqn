@@ -150,7 +150,7 @@ if __name__ == "__main__":
                 agent.save_network(prefix=outdir+'/network')
                 logger.info('checkpoint reached, network saved!')
                 agent.mode = 'test'
-                if args.record_video:
+                if args.record_videos:
                     env.monitor.start(outdir, force=True, seed=0, video_callable=first_ten)
                 else:
                     env.monitor.start(outdir, force=True, seed=0, video_callable=False)
