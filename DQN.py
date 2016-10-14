@@ -51,7 +51,15 @@ class DQN(object):
 
         #build Q-learning networks
         logger.info("building network......")
-        # print "building network......"
+        self.backend = args.backend
+        self.device_id = args.device_id
+        if self.backend == 'cpu':
+            self.ctx = mx.cpu()
+        elif self.backend == 'gpu':
+            self.ctx = mx.gpu(self.device_id)
+        else:
+            assert False
+
         self.network, self.targetNetwork = self.build_network()
 
         if self.optimizer == 'rmsprop':
@@ -170,9 +178,9 @@ class DQN(object):
         # we can use mx.sym in short of mx.symbol
         data = mx.sym.Variable("data")
 
-        # conv1 = self.ConvFactory(data=data, kernel=(8,8), stride=(4,4), pad=(1,1), num_filter=32, act_type="relu")
-        # conv2 = self.ConvFactory(data=conv1, kernel=(4,4), stride=(2,2), pad=(1,1), num_filter=64, act_type="relu")
-        # conv3 = self.ConvFactory(data=conv2, kernel=(3,3), stride=(1,1), pad=(1,1), num_filter=64, act_type="relu")
+        # conv1 = self.ConvFactory(data=data, kernel=(8,8), stride=(4,4), pad=(0,0), num_filter=32, act_type="relu")
+        # conv2 = self.ConvFactory(data=conv1, kernel=(4,4), stride=(2,2), pad=(0,0), num_filter=64, act_type="relu")
+        # conv3 = self.ConvFactory(data=conv2, kernel=(3,3), stride=(1,1), pad=(0,0), num_filter=64, act_type="relu")
         #====================================================================================================
         conv1 = self.ConvFactory(data=data, kernel=(5, 5), stride=(2, 2), pad=(0, 0), num_filter=32, act_type="relu")
         # conv2 = self.ConvFactory(data=conv1, kernel=(4, 4), stride=(2, 2), pad=(1, 1), num_filter=64, act_type="relu")
@@ -203,7 +211,7 @@ class DQN(object):
 
         # We use simple_bind to let MXNet allocate memory for us.
         # You can also allocate memory youself and use bind to pass it to MXNet.
-        network = softmax.simple_bind(ctx=mx.gpu(0), data=data_shape)
+        network = softmax.simple_bind(ctx=self.ctx, data=data_shape)
 
         #create a dumpy dataset
         train_data = np.zeros((batch_size,) + self.input_shape)
@@ -223,7 +231,7 @@ class DQN(object):
                 init(name, arr)
 
 
-        targetNetwork = softmax.simple_bind(ctx=mx.gpu(0), data=data_shape)
+        targetNetwork = softmax.simple_bind(ctx=self.ctx, data=data_shape)
         # ===============Initialization=================
         # First we get handle to input arrays
         arg_arrays = dict(zip(softmax.list_arguments(), targetNetwork.arg_arrays))
