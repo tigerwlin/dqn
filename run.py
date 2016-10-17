@@ -4,6 +4,7 @@ import os
 import sys
 from DQN import DQN
 from doubleDQN import DoubleDQN
+from duel_network import DuelNetwork
 import copy
 import random
 import matplotlib.pyplot as plt
@@ -15,7 +16,7 @@ import tempfile
 def get_parameters():
     parser = argparse.ArgumentParser(description=None)
     parser.add_argument('env_id', nargs='?', default='Catcher-v0', help='Select the environment to run')
-    parser.add_argument('--model', choices=['DQN', 'doubleDQN'], default='DQN', help='choose network models')
+    parser.add_argument('--model', choices=['DQN', 'doubleDQN', 'duelNetwork'], default='DQN', help='choose network models')
     parser.add_argument('--load', help='load network from file')
     parser.add_argument("--screen_width", type=int, default=64, help="Screen width after resize.")
     parser.add_argument("--screen_height", type=int, default=64, help="Screen height after resize.")
@@ -85,7 +86,7 @@ if __name__ == "__main__":
     hdlr_2 = logging.FileHandler(outdir+'/record.log')
     hdlr_2.setFormatter(formatter)
     file_logger.addHandler(hdlr_2)
-    file_logger.setLevel(logging.DEBUG)
+    file_logger.setLevel(logging.INFO)
 
     env = gym.make(args.env_id)
 
@@ -100,6 +101,10 @@ if __name__ == "__main__":
         agent = DQN(args, env.action_space)
     elif args.model == 'doubleDQN':
         agent = DoubleDQN(args, env.action_space)
+    elif args.model == 'duelNetwork':
+        agent = DuelNetwork(args, env.action_space)
+    else:
+        assert False
     # agent = neonDQN((4,64,64), env.action_space)
     if args.load is not None:
         agent.load_network(prefix=outdir+'/network')
@@ -135,6 +140,9 @@ if __name__ == "__main__":
 
                 state = copy.deepcopy(nextState)
                 episode_steps += 1
+
+                if file_logger.isEnabledFor(logging.DEBUG):
+                    file_logger.debug("model: " + str(args.model) + " current step score: " + str(episode_reward[0]))
                 if done:
                     break
                 # Note there's no env.render() here. But the environment still can open window and
