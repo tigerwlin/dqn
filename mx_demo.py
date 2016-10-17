@@ -31,7 +31,16 @@ bn1 = mx.sym.BatchNorm(data=fc1, name="bn1")
 act1 = mx.sym.Activation(data=bn1, name="act1", act_type="relu")
 fc2 = mx.sym.FullyConnected(data=act1, name="fc2", num_hidden=10)
 # softmax = mx.sym.Softmax(data=fc2, name="softmax")
-linear = mx.sym.LinearRegressionOutput(data=fc2, name="softmax")
+# linear = mx.sym.LinearRegressionOutput(data=fc2, name="softmax")
+linear1 = mx.sym.LinearRegressionOutput(data=fc2, name="linear1")
+
+fc1_2 = mx.sym.FullyConnected(data=conv3, num_hidden=512, name="fc1_2")
+bn1_2 = mx.sym.BatchNorm(data=fc1_2, name="bn1_2")
+act1_2 = mx.sym.Activation(data=bn1_2, name="act1_2", act_type="relu")
+fc2_2 = mx.sym.FullyConnected(data=act1_2, name="fc2_2", num_hidden=10)
+linear2 = mx.sym.LinearRegressionOutput(data=fc2_2, name="linear2")
+
+linear = mx.sym.Group([linear1, linear2])
 # visualize the network
 batch_size = 100
 data_shape = (batch_size, 1, 28, 28)
@@ -154,20 +163,22 @@ def Accuracy(target, pred_prob):
 # MXNet then run automatic shape inference to determine the dimensions of intermediate and output arrays.
 
 # data iterators defines shapes of its output with provide_data and provide_label property.
-input_shapes = dict(train_iter.provide_data + train_iter.provide_label)
+# input_shapes = dict(train_iter.provide_data + train_iter.provide_label)
+input_shapes = dict(train_iter.provide_data + [('linear1_label', (100, 10))] + [('linear2_label', (100, 10))])
 print 'input_shapes', input_shapes
 # We use simple_bind to let MXNet allocate memory for us.
 # You can also allocate memory youself and use bind to pass it to MXNet.
 # exe = softmax.simple_bind(ctx=mx.gpu(0), **input_shapes)
 # exe2 = softmax.simple_bind(ctx=mx.gpu(0), **input_shapes)
-exe = linear.simple_bind(ctx=mx.gpu(0), **input_shapes)
-exe2 = linear.simple_bind(ctx=mx.gpu(0), **input_shapes)
+# exe = linear.simple_bind(ctx=mx.gpu(0), **input_shapes)
+exe = linear.simple_bind(ctx=mx.gpu(0), data=data_shape)
 # ===============Initialization=================
 # First we get handle to input arrays
 arg_arrays = exe.arg_dict
 data = arg_arrays[train_iter.provide_data[0][0]]
-label = arg_arrays[train_iter.provide_label[0][0]]
-
+# label = arg_arrays[train_iter.provide_label[0][0]]
+label1 = arg_arrays['linear1_label']
+label2 = arg_arrays['linear2_label']
 # We initialize the weights with uniform distribution on (-0.01, 0.01).
 init = mx.init.Uniform(scale=0.01)
 for name, arr in arg_arrays.items():
@@ -189,20 +200,6 @@ updater = mx.optimizer.get_updater(opt)
 # Finally we need a metric to print out training progress
 metric = mx.metric.Accuracy()
 
-t = 0
-val_iter.reset()
-metric.reset()
-for batch in val_iter:
-        # Copy data to executor input. Note the [:].
-        data[:] = batch.data[0]
-        label[:] = batch.label[0]
-
-        # Forward
-        exe.forward(is_train=False)
-        # metric.update(batch.label, exe.outputs)
-        # t += 1
-        # if t % 50 == 0:
-        #     print 'epoch:', 0, 'test iter:', t, 'metric:', metric.get()
 # Training loop begines
 for epoch in range(2):
     train_iter.reset()
@@ -212,7 +209,8 @@ for epoch in range(2):
     for batch in train_iter:
         # Copy data to executor input. Note the [:].
         data[:] = batch.data[0]
-        label[:] = batch.label[0]
+        label1[:] = batch.label[0]
+        label2[:] = batch.label[0]
 
         # Forward
         exe.forward(is_train=True)
@@ -230,78 +228,25 @@ for epoch in range(2):
         # metric.update(batch.label, exe.outputs)
         t += 1
         if t % 100 == 0:
-            print 'epoch:', epoch, 'train iter:', t, 'metric:', Accuracy(label.asnumpy(), exe.outputs[0].asnumpy())
+            print 'epoch:', epoch, 'train iter:', t, 'metric:', Accuracy(label1.asnumpy(), exe.outputs[0].asnumpy())
+            print 'epoch:', epoch, 'train iter:', t, 'metric:', Accuracy(label2.asnumpy(), exe.outputs[1].asnumpy())
         #     print 'epoch:', epoch, 'train iter:', t, 'metric:', metric.get()
     t = 0
     # metric.reset()
     for batch in val_iter:
         # Copy data to executor input. Note the [:].
         data[:] = batch.data[0]
-        label[:] = batch.label[0]
-
+        label1[:] = batch.label[0]
+        label2[:] = batch.label[0]
         # Forward
         exe.forward(is_train=False)
         # metric.update(batch.label, exe.outputs)
         t += 1
         if t % 50 == 0:
-            print 'epoch:', epoch, 'test iter:', t, 'metric:', Accuracy(label.asnumpy(), exe.outputs[0].asnumpy())
+            print 'epoch:', epoch, 'test iter:', t, 'metric:', Accuracy(label1.asnumpy(), exe.outputs[0].asnumpy())
+            print 'epoch:', epoch, 'test iter:', t, 'metric:', Accuracy(label2.asnumpy(), exe.outputs[1].asnumpy())
         #     print 'epoch:', epoch, 'test iter:', t, 'metric:', metric.get()
 #=========================================================================
-print "network2:"
-t = 0
-# metric.reset()
-val_iter.reset()
-arg_arrays = exe2.arg_dict
-data = arg_arrays[train_iter.provide_data[0][0]]
-label = arg_arrays[train_iter.provide_label[0][0]]
-for batch in val_iter:
-    # Copy data to executor input. Note the [:].
-    data[:] = batch.data[0]
-    label[:] = batch.label[0]
-
-    # Forward
-    exe2.forward(is_train=False)
-    # metric.update(batch.label, exe2.outputs)
-    t += 1
-    if t % 50 == 0:
-        print 'epoch:', epoch, 'test iter:', t, 'metric:', Accuracy(label.asnumpy(), exe2.outputs[0].asnumpy())
-    #     print 'epoch:', epoch, 'test iter:', t, 'metric:', metric.get()
-
-print "after weight transfer:"
-exe2.copy_params_from(exe.arg_dict, exe.aux_dict)
-
-print "network1:"
-t = 0
-# metric.reset()
-val_iter.reset()
-arg_arrays = exe.arg_dict
-data = arg_arrays[train_iter.provide_data[0][0]]
-label = arg_arrays[train_iter.provide_label[0][0]]
-for batch in val_iter:
-    # Copy data to executor input. Note the [:].
-    data[:] = batch.data[0]
-    label[:] = batch.label[0]
-
-    # Forward
-    exe.forward(is_train=False)
-    # metric.update(batch.label, exe.outputs)
-    t += 1
-    if t % 50 == 0:
-        print 'epoch:', epoch, 'test iter:', t, 'metric:', Accuracy(label.asnumpy(), exe.outputs[0].asnumpy())
-    #     print 'epoch:', epoch, 'test iter:', t, 'metric:', metric.get()
-print "network2:"
-t = 0
-metric.reset()
-val_iter.reset()
-arg_arrays = exe2.arg_dict
-data = arg_arrays[train_iter.provide_data[0][0]]
-label = arg_arrays[train_iter.provide_label[0][0]]
-
-data[:] = val_data[:batch_size,...]
-label[:] = val_label[:batch_size,...]
-exe2.forward(is_train=False)
-print 'epoch:', epoch, 'test iter:', -1, 'metric:', Accuracy(label.asnumpy(), exe2.outputs[0].asnumpy())
-
 # for batch in val_iter:
 #     # Copy data to executor input. Note the [:].
 #     data[:] = batch.data[0]
