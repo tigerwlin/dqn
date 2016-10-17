@@ -273,7 +273,7 @@ class DQN(object):
             # return the index of maximum Q value
             return np.argmax(q)
 
-    def _network_forward(self, net, state):
+    def _network_forward(self, net, state, is_train=False):
         assert state.shape[0] == self.sampleSize
         assert state.shape[1] == self.input_shape[0]
 
@@ -281,7 +281,7 @@ class DQN(object):
         arg_arrays = net.arg_dict
         data = arg_arrays['data']
         data[:] = state_float
-        net.forward(is_train=True)
+        net.forward(is_train=is_train)
         q = net.outputs[0].asnumpy()
         assert q.shape == (self.sampleSize, self.action_space_size)
 
@@ -325,12 +325,14 @@ class DQN(object):
         #     assert maxpostq.shape == (1, self.sampleSize)
         # else :
         # feed-forward pass for poststates to get Q-values
-        state_float = nextState / 255.0
-        arg_arrays = self.targetNetwork.arg_dict
-        data = arg_arrays['data']
-        data[:] = state_float
-        self.targetNetwork.forward(is_train=True)
-        postq = self.targetNetwork.outputs[0].asnumpy()
+
+        # state_float = nextState / 255.0
+        # arg_arrays = self.targetNetwork.arg_dict
+        # data = arg_arrays['data']
+        # data[:] = state_float
+        # self.targetNetwork.forward(is_train=True)
+        # postq = self.targetNetwork.outputs[0].asnumpy()
+        postq = self._network_forward(self.targetNetwork, nextState)
         postq = postq.transpose()
         assert postq.shape == (self.action_space_size, self.sampleSize)
 
@@ -340,13 +342,16 @@ class DQN(object):
 
         # ============================================================================
         # feed-forward pass for prestates
-        state_float = state / 255.0
-        arg_arrays = self.network.arg_dict
-        data = arg_arrays['data']
-        data[:] = state_float
-        self.network.forward(is_train=True)
-        q = self.network.outputs[0]
-        preq = q.asnumpy().transpose()
+
+        # state_float = state / 255.0
+        # arg_arrays = self.network.arg_dict
+        # data = arg_arrays['data']
+        # data[:] = state_float
+        # self.network.forward(is_train=True)
+        # q = self.network.outputs[0]
+        # preq = q.asnumpy().transpose()
+        q = self._network_forward(self.network, state, is_train=True)
+        preq = q.transpose()
         assert preq.shape == (self.action_space_size, self.sampleSize)
 
         # make copy of prestate Q-values as targets
@@ -377,6 +382,7 @@ class DQN(object):
             deltas = np.clip(deltas, -1, 1)
 
         # perform back-propagation of gradients
+        arg_arrays = self.network.arg_dict
         label = arg_arrays['softmax_label']
         label[:] = (preq - deltas).transpose()
         self.network.backward()
