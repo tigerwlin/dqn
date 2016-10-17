@@ -21,12 +21,13 @@ class DoubleDQN(DQN):
         # ======================new version=========================================================================
         # selection step: use the online network to determine the greedy policy
         # feed-forward pass for poststates to get Q-values
-        state_float = nextState / 255.0
-        arg_arrays = self.network.arg_dict
-        data = arg_arrays['data']
-        data[:] = state_float
-        self.network.forward(is_train=True)
-        postq = self.network.outputs[0].asnumpy()
+        # state_float = nextState / 255.0
+        # arg_arrays = self.network.arg_dict
+        # data = arg_arrays['data']
+        # data[:] = state_float
+        # self.network.forward(is_train=True)
+        # postq = self.network.outputs[0].asnumpy()
+        postq = self._network_forward(self.network, nextState)
         postq = postq.transpose()
         assert postq.shape == (self.action_space_size, self.sampleSize)
 
@@ -35,11 +36,12 @@ class DoubleDQN(DQN):
         assert maxposta.shape == (self.sampleSize,)
 
         # evaluation step: use the target network to determine the future reward value
-        arg_arrays = self.targetNetwork.arg_dict
-        data = arg_arrays['data']
-        data[:] = state_float
-        self.targetNetwork.forward(is_train=True)
-        postq = self.targetNetwork.outputs[0].asnumpy()
+        # arg_arrays = self.targetNetwork.arg_dict
+        # data = arg_arrays['data']
+        # data[:] = state_float
+        # self.targetNetwork.forward(is_train=True)
+        # postq = self.targetNetwork.outputs[0].asnumpy()
+        postq = self._network_forward(self.targetNetwork, nextState)
         postq = postq.transpose()
         assert postq.shape == (self.action_space_size, self.sampleSize)
         # use the online network's result to determine the future reward value
@@ -48,13 +50,15 @@ class DoubleDQN(DQN):
         assert maxpostq.shape == (1, self.sampleSize)
         # ============================================================================
         # feed-forward pass for prestates
-        state_float = state / 255.0
-        arg_arrays = self.network.arg_dict
-        data = arg_arrays['data']
-        data[:] = state_float
-        self.network.forward(is_train=True)
-        q = self.network.outputs[0]
-        preq = q.asnumpy().transpose()
+        # state_float = state / 255.0
+        # arg_arrays = self.network.arg_dict
+        # data = arg_arrays['data']
+        # data[:] = state_float
+        # self.network.forward(is_train=True)
+        # q = self.network.outputs[0]
+        # preq = q.asnumpy().transpose()
+        q = self._network_forward(self.network, state, is_train=True)
+        preq = q.transpose()
         assert preq.shape == (self.action_space_size, self.sampleSize)
 
         # make copy of prestate Q-values as targets
@@ -85,6 +89,7 @@ class DoubleDQN(DQN):
             deltas = np.clip(deltas, -1, 1)
 
         # perform back-propagation of gradients
+        arg_arrays = self.network.arg_dict
         label = arg_arrays['softmax_label']
         label[:] = (preq - deltas).transpose()
         self.network.backward()
